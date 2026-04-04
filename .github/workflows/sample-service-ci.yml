@@ -10,6 +10,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
@@ -38,7 +41,9 @@ jobs:
 
       - name: Set image name
         shell: bash
-        run: echo "IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/smartgenie-sample:${{ github.sha }}" >> "$GITHUB_ENV"
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${OWNER_LC}/smartgenie-sample:${GITHUB_SHA}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         if: github.event_name == 'push'
