@@ -8,9 +8,10 @@ app = Flask(__name__)
 def index():
     return jsonify(
         {
-            "service": "smartgenie-sample",
+            "service": "smartgenie-agent-analytics",
             "status": "running",
             "environment": os.getenv("APP_ENV", "dev"),
+            "capability": "analytics-and-insights",
         }
     )
 
@@ -18,6 +19,17 @@ def index():
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"}), 200
+
+
+@app.get("/metrics")
+def metrics():
+    return jsonify(
+        {
+            "eventsProcessed": 128,
+            "insightsGenerated": 12,
+            "queueDepth": 3,
+        }
+    )
 
 
 if __name__ == "__main__":

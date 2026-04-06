@@ -1,15 +1,46 @@
-# `sample-service`
+# `smartgenie-sample-service`
 
-A tiny Flask service for validating the SmartGenie local CI/CD and GitOps flow.
+A small SmartGenie-style **multi-service application repo** for validating monorepo CI/CD and GitOps patterns.
 
-## Local build target
-This image is meant to be built into Minikube for the local POC:
-
-```powershell
-minikube image build -t smartgenie-sample:local .\sample-service
-kubectl apply -k .\sg-gitops\environments\dev
-kubectl get pods -n smartgenie-dev
-kubectl port-forward -n smartgenie-dev svc/smartgenie-sample 8080:80
+## Repo layout
+```text
+smartgenie-sample-service/
+├── services/
+│   ├── agent-assistant/
+│   └── agent-analytics/
+├── .github/workflows/
+├── requirements-dev.txt
+└── pyproject.toml
 ```
 
-Then open: `http://127.0.0.1:8080/health`
+## Included services
+### `agent-assistant`
+- conversation-facing sample agent
+- endpoints: `/`, `/health`, `/respond`
+
+### `agent-analytics`
+- analytics/insights sample agent
+- endpoints: `/`, `/health`, `/metrics`
+
+## Dependency model
+- root `requirements-dev.txt` -> shared dev/test tooling
+- `services/*/requirements.txt` -> runtime dependencies for each service container
+
+## Local run examples
+```powershell
+python .\services\agent-assistant\app.py
+python .\services\agent-analytics\app.py
+```
+
+## Local Docker build examples
+```powershell
+docker build -t smartgenie-agent-assistant:local .\services\agent-assistant
+docker build -t smartgenie-agent-analytics:local .\services\agent-analytics
+```
+
+## CI/CD intent
+- run quality gates for pull requests
+- validate Docker builds for each service independently
+- publish environment-specific images for each service from the same repo
+
+This structure better reflects the SmartGenie pattern where multiple related service containers can live in one repo.

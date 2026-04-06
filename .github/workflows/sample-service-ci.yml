@@ -1,4 +1,4 @@
-name: sample-service-ci-cd
+name: smartgenie-monorepo-ci-cd
 
 on:
   pull_request:
@@ -35,13 +35,20 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: sample-service-${{ github.workflow }}-${{ github.ref }}
+  group: smartgenie-monorepo-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality-gates:
-    name: Quality gates
+    name: Quality gates (${{ matrix.service }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -52,10 +59,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: |
+            requirements-dev.txt
+            services/${{ matrix.service }}/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: |
+          pip install -r ../../requirements-dev.txt
+          pip install -r requirements.txt
 
       - name: Lint
         run: ruff check .
@@ -74,6 +85,7 @@ jobs:
         run: |
           {
             echo '## Quality Gate Summary'
+            echo "- Service: ${{ matrix.service }}"
             echo '- Lint: completed'
             echo '- Syntax validation: completed'
             echo '- Tests + coverage: completed'
@@ -82,31 +94,46 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   docker-validate:
-    name: Docker validation build
+    name: Docker validation (${{ matrix.service }})
     runs-on: ubuntu-latest
     needs: quality-gates
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Build validation image
-        run: docker build -t smartgenie-sample:ci-${{ github.sha }} .
+        run: docker build -t smartgenie-${{ matrix.service }}:ci-${{ github.sha }} .
 
       - name: Publish build summary
         shell: bash
         run: |
           {
             echo '## Docker Validation'
+            echo "- Service: ${{ matrix.service }}"
             echo "- Validation image built for ${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-dev-image:
-    name: Publish dev image
+    name: Publish dev images
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     needs: [quality-gates, docker-validate]
     environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -122,17 +149,24 @@ jobs:
       - name: Build and push dev image
         shell: bash
         run: |
-          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-sample"
+          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-${{ matrix.service }}"
           docker build -t "${IMAGE_BASE}:dev-${GITHUB_SHA}" -t "${IMAGE_BASE}:dev-latest" .
           docker push "${IMAGE_BASE}:dev-${GITHUB_SHA}"
           docker push "${IMAGE_BASE}:dev-latest"
 
   publish-qa-image:
-    name: Publish qa image
+    name: Publish qa images
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: [quality-gates, docker-validate]
     environment: qa
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -148,17 +182,24 @@ jobs:
       - name: Build and push qa image
         shell: bash
         run: |
-          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-sample"
+          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-${{ matrix.service }}"
           docker build -t "${IMAGE_BASE}:${GITHUB_SHA}" -t "${IMAGE_BASE}:qa-latest" .
           docker push "${IMAGE_BASE}:${GITHUB_SHA}"
           docker push "${IMAGE_BASE}:qa-latest"
 
   publish-preprod-image:
-    name: Publish preprod image
+    name: Publish preprod images
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     needs: [quality-gates, docker-validate]
     environment: preprod
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -174,17 +215,24 @@ jobs:
       - name: Build and push preprod image
         shell: bash
         run: |
-          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-sample"
+          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-${{ matrix.service }}"
           docker build -t "${IMAGE_BASE}:preprod-${GITHUB_SHA}" -t "${IMAGE_BASE}:preprod-latest" .
           docker push "${IMAGE_BASE}:preprod-${GITHUB_SHA}"
           docker push "${IMAGE_BASE}:preprod-latest"
 
   publish-manual-image:
-    name: Publish manually selected environment image
+    name: Publish manually selected environment images
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: [quality-gates, docker-validate]
     environment: ${{ inputs.target_environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent-assistant, agent-analytics]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
 
     steps:
       - name: Checkout repository
@@ -200,7 +248,7 @@ jobs:
       - name: Build and push selected environment image
         shell: bash
         run: |
-          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-sample"
+          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/smartgenie-${{ matrix.service }}"
           TARGET_ENV="${{ inputs.target_environment }}"
           docker build -t "${IMAGE_BASE}:${TARGET_ENV}-${GITHUB_SHA}" -t "${IMAGE_BASE}:${TARGET_ENV}-latest" .
           docker push "${IMAGE_BASE}:${TARGET_ENV}-${GITHUB_SHA}"
