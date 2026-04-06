@@ -1,0 +1,107 @@
+name: promote-smartgenie-artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to update in sg-gitops
+        required: true
+        type: choice
+        options:
+          - qa
+          - preprod
+          - prod
+      image_tag:
+        description: "Immutable image tag to promote (example: sha-de16cff)"
+        required: true
+        type: string
+      services:
+        description: Service scope to promote
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - agent-assistant
+          - agent-analytics
+      gitops_branch:
+        description: GitOps branch to update
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.12'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  promote:
+    name: Promote artifact to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+
+    steps:
+      - name: Checkout automation repo
+        uses: actions/checkout@v4
+
+      - name: Validate required token
+        shell: bash
+        env:
+          GITOPS_REPO_TOKEN: ${{ secrets.GITOPS_REPO_TOKEN }}
+        run: |
+          if [ -z "$GITOPS_REPO_TOKEN" ]; then
+            echo "GITOPS_REPO_TOKEN is not configured. Add it to the app repository secrets before running promotion."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: SS12dev/sg-gitops
+          ref: ${{ inputs.gitops_branch }}
+          token: ${{ secrets.GITOPS_REPO_TOKEN }}
+          path: sg-gitops
+
+      - name: Update GitOps environment tag
+        shell: bash
+        run: |
+          if [ "${{ inputs.services }}" = "all" ]; then
+            python scripts/update_gitops_tags.py \
+              --gitops-dir sg-gitops \
+              --environment "${{ inputs.target_environment }}" \
+              --tag "${{ inputs.image_tag }}"
+          else
+            python scripts/update_gitops_tags.py \
+              --gitops-dir sg-gitops \
+              --environment "${{ inputs.target_environment }}" \
+              --tag "${{ inputs.image_tag }}" \
+              --service "${{ inputs.services }}"
+          fi
+
+      - name: Show GitOps diff
+        shell: bash
+        run: |
+          cd sg-gitops
+          git diff -- "environments/${{ inputs.target_environment }}"
+
+      - name: Commit and push promotion
+        shell: bash
+        run: |
+          cd sg-gitops
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add "environments/${{ inputs.target_environment }}"
+          git commit -m "Promote ${{ inputs.target_environment }} to ${{ inputs.image_tag }}"
+          git push origin HEAD:${{ inputs.gitops_branch }}
